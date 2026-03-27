@@ -28,7 +28,7 @@ func main() {
 	startWork(ctx)
 }
 
-// startWork performs a task every 60 seconds until the context is done.
+// startWork performs a task every 5 seconds until the context is done.
 func startWork(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -47,7 +47,10 @@ func startWork(ctx context.Context) {
 }
 
 func work(ctx context.Context) error {
-	cpus, _ := cpu.Get()
+	cpus, err := cpu.Get()
+	if err != nil {
+		return fmt.Errorf("failed to get cpu stats: %w", err)
+	}
 	fmt.Printf("user%%\tnice%%\tsystem%%\tidle%%\n")
 	fmt.Printf("%v\t%v\t%v\t%v\n",
 		cpus.UserPercent,
