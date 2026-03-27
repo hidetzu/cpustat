@@ -31,7 +31,7 @@ go test ./... -v -race
   - Key functions: `Get()` returns a snapshot, `Delta(prev, next)` computes tick deltas between two snapshots.
   - Internal: `parseLine()` parses a single `/proc/stat` CPU line, reused for both aggregate and per-core lines.
 - **`main.go`** — Demo CLI. Polls `cpu.Get()` on a 5-second ticker, prints delta-based usage via `CPU.Usage()`. Graceful shutdown on SIGTERM/SIGINT.
-- **`build/Dockerfile`** — Multi-stage build container using `golang:1.20`.
+- **`build/Dockerfile`** — Multi-stage build container using `golang:1.23`.
 
 ## Platform Constraint
 
