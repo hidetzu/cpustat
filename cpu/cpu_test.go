@@ -15,6 +15,63 @@ cpu3 2539453 72807 771372 11699956 4180 0 6311 0 0 0
 intr 330660234 0 0 0 0 0 0 0 0
 `
 
+func TestParseLine(t *testing.T) {
+	fields := []string{"1000", "200", "300", "5000", "100", "0", "50", "0", "80", "20"}
+	cs, err := parseLine(fields)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cs.User != 1000 {
+		t.Errorf("User = %d, want 1000", cs.User)
+	}
+	if cs.Idle != 5000 {
+		t.Errorf("Idle = %d, want 5000", cs.Idle)
+	}
+	if cs.Guest != 80 {
+		t.Errorf("Guest = %d, want 80", cs.Guest)
+	}
+	if cs.GuestNice != 20 {
+		t.Errorf("GuestNice = %d, want 20", cs.GuestNice)
+	}
+	rawSum := uint64(1000 + 200 + 300 + 5000 + 100 + 0 + 50 + 0 + 80 + 20)
+	expectedTotal := rawSum - 80 - 20
+	if cs.Total != expectedTotal {
+		t.Errorf("Total = %d, want %d", cs.Total, expectedTotal)
+	}
+}
+
+func TestParseLineFewerFields(t *testing.T) {
+	fields := []string{"1000", "200", "300", "5000"}
+	cs, err := parseLine(fields)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cs.User != 1000 {
+		t.Errorf("User = %d, want 1000", cs.User)
+	}
+	if cs.Iowait != 0 {
+		t.Errorf("Iowait = %d, want 0", cs.Iowait)
+	}
+}
+
+func TestParseLineInvalidValue(t *testing.T) {
+	fields := []string{"1000", "abc", "300"}
+	_, err := parseLine(fields)
+	if err == nil {
+		t.Error("expected error for invalid value, got nil")
+	}
+}
+
+func TestParseLineEmpty(t *testing.T) {
+	cs, err := parseLine([]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cs.Total != 0 {
+		t.Errorf("Total = %d, want 0", cs.Total)
+	}
+}
+
 func TestCollectCPUStats(t *testing.T) {
 	reader := strings.NewReader(procStatContent)
 	stats, err := collectCPUStats(reader)
@@ -22,53 +79,31 @@ func TestCollectCPUStats(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify raw values from the first "cpu" line
-	if stats.User != 10132153 {
-		t.Errorf("User = %d, want 10132153", stats.User)
+	if stats.CPU.User != 10132153 {
+		t.Errorf("CPU.User = %d, want 10132153", stats.CPU.User)
 	}
-	if stats.Nice != 290696 {
-		t.Errorf("Nice = %d, want 290696", stats.Nice)
+	if stats.CPU.Nice != 290696 {
+		t.Errorf("CPU.Nice = %d, want 290696", stats.CPU.Nice)
 	}
-	if stats.System != 3084719 {
-		t.Errorf("System = %d, want 3084719", stats.System)
+	if stats.CPU.System != 3084719 {
+		t.Errorf("CPU.System = %d, want 3084719", stats.CPU.System)
 	}
-	if stats.Idle != 46828483 {
-		t.Errorf("Idle = %d, want 46828483", stats.Idle)
-	}
-	if stats.Iowait != 16683 {
-		t.Errorf("Iowait = %d, want 16683", stats.Iowait)
-	}
-	if stats.Irq != 0 {
-		t.Errorf("Irq = %d, want 0", stats.Irq)
-	}
-	if stats.Softirq != 25195 {
-		t.Errorf("Softirq = %d, want 25195", stats.Softirq)
-	}
-	if stats.Steal != 0 {
-		t.Errorf("Steal = %d, want 0", stats.Steal)
-	}
-	if stats.Guest != 0 {
-		t.Errorf("Guest = %d, want 0", stats.Guest)
-	}
-	if stats.GuestNice != 0 {
-		t.Errorf("GuestNice = %d, want 0", stats.GuestNice)
+	if stats.CPU.Idle != 46828483 {
+		t.Errorf("CPU.Idle = %d, want 46828483", stats.CPU.Idle)
 	}
 
-	// Total = sum of all fields - Guest - GuestNice
 	expectedTotal := uint64(10132153 + 290696 + 3084719 + 46828483 + 16683 + 0 + 25195 + 0 + 0 + 0)
-	if stats.Total != expectedTotal {
-		t.Errorf("Total = %d, want %d", stats.Total, expectedTotal)
+	if stats.CPU.Total != expectedTotal {
+		t.Errorf("CPU.Total = %d, want %d", stats.CPU.Total, expectedTotal)
 	}
 
 	if stats.StatCount != 10 {
 		t.Errorf("StatCount = %d, want 10", stats.StatCount)
 	}
-
 	if stats.CPUCount != 4 {
 		t.Errorf("CPUCount = %d, want 4", stats.CPUCount)
 	}
 
-	// Verify percentages
 	wantUserPct := float64(10132153) / float64(expectedTotal) * 100
 	if math.Abs(stats.UserPercent-wantUserPct) > 0.001 {
 		t.Errorf("UserPercent = %f, want %f", stats.UserPercent, wantUserPct)
@@ -80,7 +115,6 @@ func TestCollectCPUStats(t *testing.T) {
 }
 
 func TestCollectCPUStatsWithGuestTime(t *testing.T) {
-	// Guest and GuestNice are non-zero; they should be subtracted from Total
 	input := "cpu  1000 200 300 5000 100 0 50 0 80 20\n"
 	reader := strings.NewReader(input)
 	stats, err := collectCPUStats(reader)
@@ -89,16 +123,15 @@ func TestCollectCPUStatsWithGuestTime(t *testing.T) {
 	}
 
 	rawSum := uint64(1000 + 200 + 300 + 5000 + 100 + 0 + 50 + 0 + 80 + 20)
-	expectedTotal := rawSum - 80 - 20 // subtract Guest and GuestNice
-	if stats.Total != expectedTotal {
-		t.Errorf("Total = %d, want %d (raw sum %d minus Guest 80 and GuestNice 20)", stats.Total, expectedTotal, rawSum)
+	expectedTotal := rawSum - 80 - 20
+	if stats.CPU.Total != expectedTotal {
+		t.Errorf("CPU.Total = %d, want %d", stats.CPU.Total, expectedTotal)
 	}
-
-	if stats.Guest != 80 {
-		t.Errorf("Guest = %d, want 80", stats.Guest)
+	if stats.CPU.Guest != 80 {
+		t.Errorf("CPU.Guest = %d, want 80", stats.CPU.Guest)
 	}
-	if stats.GuestNice != 20 {
-		t.Errorf("GuestNice = %d, want 20", stats.GuestNice)
+	if stats.CPU.GuestNice != 20 {
+		t.Errorf("CPU.GuestNice = %d, want 20", stats.CPU.GuestNice)
 	}
 }
 
@@ -120,37 +153,51 @@ func TestCollectCPUStatsInvalidValue(t *testing.T) {
 }
 
 func TestCollectCPUStatsFewerFields(t *testing.T) {
-	// Old kernels may have fewer fields (e.g., 4 instead of 10)
 	input := "cpu  1000 200 300 5000\n"
 	reader := strings.NewReader(input)
 	stats, err := collectCPUStats(reader)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if stats.User != 1000 {
-		t.Errorf("User = %d, want 1000", stats.User)
+	if stats.CPU.User != 1000 {
+		t.Errorf("CPU.User = %d, want 1000", stats.CPU.User)
 	}
-	if stats.Idle != 5000 {
-		t.Errorf("Idle = %d, want 5000", stats.Idle)
-	}
-	if stats.Iowait != 0 {
-		t.Errorf("Iowait = %d, want 0 (not present in input)", stats.Iowait)
+	if stats.CPU.Idle != 5000 {
+		t.Errorf("CPU.Idle = %d, want 5000", stats.CPU.Idle)
 	}
 	if stats.StatCount != 4 {
 		t.Errorf("StatCount = %d, want 4", stats.StatCount)
 	}
 }
 
+func TestCollectCPUStatsNoCPULines(t *testing.T) {
+	input := "cpu  1000 200 300 5000 100 0 50 0 0 0\nintr 0\n"
+	reader := strings.NewReader(input)
+	stats, err := collectCPUStats(reader)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stats.CPUCount != 0 {
+		t.Errorf("CPUCount = %d, want 0", stats.CPUCount)
+	}
+}
+
 func TestDelta(t *testing.T) {
 	prev := &Stats{
-		User: 1000, Nice: 200, System: 300, Idle: 5000,
-		Iowait: 100, Irq: 0, Softirq: 50, Steal: 0, Guest: 0, GuestNice: 0,
-		Total: 6650, CPUCount: 4, StatCount: 10,
+		CPU: CoreStats{
+			User: 1000, Nice: 200, System: 300, Idle: 5000,
+			Iowait: 100, Irq: 0, Softirq: 50, Steal: 0, Guest: 0, GuestNice: 0,
+			Total: 6650,
+		},
+		CPUCount: 4, StatCount: 10,
 	}
 	next := &Stats{
-		User: 1200, Nice: 210, System: 350, Idle: 5400,
-		Iowait: 110, Irq: 0, Softirq: 60, Steal: 0, Guest: 0, GuestNice: 0,
-		Total: 7330, CPUCount: 4, StatCount: 10,
+		CPU: CoreStats{
+			User: 1200, Nice: 210, System: 350, Idle: 5400,
+			Iowait: 110, Irq: 0, Softirq: 60, Steal: 0, Guest: 0, GuestNice: 0,
+			Total: 7330,
+		},
+		CPUCount: 4, StatCount: 10,
 	}
 
 	d := Delta(prev, next)
@@ -158,12 +205,12 @@ func TestDelta(t *testing.T) {
 		t.Fatal("Delta returned nil, expected non-nil")
 	}
 
-	totalDelta := uint64(7330 - 6650) // 680
-	if d.Total != totalDelta {
-		t.Errorf("Total = %d, want %d", d.Total, totalDelta)
+	totalDelta := uint64(7330 - 6650)
+	if d.CPU.Total != totalDelta {
+		t.Errorf("CPU.Total = %d, want %d", d.CPU.Total, totalDelta)
 	}
-	if d.User != 200 {
-		t.Errorf("User = %d, want 200", d.User)
+	if d.CPU.User != 200 {
+		t.Errorf("CPU.User = %d, want 200", d.CPU.User)
 	}
 
 	wantUserPct := float64(200) / float64(680) * 100
@@ -182,23 +229,14 @@ func TestDelta(t *testing.T) {
 
 func TestDeltaZeroTotal(t *testing.T) {
 	s := &Stats{
-		User: 1000, Nice: 200, System: 300, Idle: 5000,
-		Total: 6500, CPUCount: 2,
+		CPU: CoreStats{
+			User: 1000, Nice: 200, System: 300, Idle: 5000,
+			Total: 6500,
+		},
+		CPUCount: 2,
 	}
 	d := Delta(s, s)
 	if d != nil {
 		t.Errorf("Delta with identical stats should return nil, got %+v", d)
-	}
-}
-
-func TestCollectCPUStatsNoCPULines(t *testing.T) {
-	input := "cpu  1000 200 300 5000 100 0 50 0 0 0\nintr 0\n"
-	reader := strings.NewReader(input)
-	stats, err := collectCPUStats(reader)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if stats.CPUCount != 0 {
-		t.Errorf("CPUCount = %d, want 0", stats.CPUCount)
 	}
 }
