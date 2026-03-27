@@ -34,13 +34,17 @@ func startWork(ctx context.Context) {
 	defer ticker.Stop()
 
 	var prev *cpu.Stats
+	headerPrinted := false
 	for {
 		cur, err := cpu.Get()
 		if err != nil {
 			fmt.Printf("failed to get cpu stats: %s\n", err)
 		} else if prev != nil {
 			if d := cpu.Delta(prev, cur); d != nil {
-				fmt.Printf("user%%\tnice%%\tsystem%%\tidle%%\n")
+				if !headerPrinted {
+					fmt.Printf("user%%\tnice%%\tsystem%%\tidle%%\n")
+					headerPrinted = true
+				}
 				fmt.Printf("%.1f\t%.1f\t%.1f\t%.1f\n",
 					d.UserPercent,
 					d.NicePercent,
