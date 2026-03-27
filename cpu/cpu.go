@@ -72,6 +72,9 @@ func collectCPUStats(out io.Reader) (*Stats, error) {
 	valStrs := strings.Fields(scanner.Text())[1:]
 	cpu.StatCount = len(valStrs)
 	for i, valStr := range valStrs {
+		if i >= len(cpuStats) {
+			break
+		}
 		val, err := strconv.ParseUint(valStr, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan %s from /proc/stat", cpuStats[i].name)

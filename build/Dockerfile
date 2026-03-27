@@ -1,9 +1,9 @@
-FROM quay.io/centos/centos:stream9
+FROM golang:1.20 AS build
 
-RUN dnf install -y epel-release
-RUN dnf install -y golang
+WORKDIR /src
+COPY go.mod ./
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/cpustat .
 
-RUN mkdir -p /go/src/github.com/cpustat
-WORKDIR /go/src/github.com/cpustat
-ADD . /go/src/github.com/cpustat/
-
+FROM build AS bin
+COPY --from=build /out/cpustat /cpustat

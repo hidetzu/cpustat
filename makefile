@@ -2,4 +2,4 @@ all: bin/cpustat
 
 .PHONY: bin/cpustat
 bin/cpustat
-	@docker build . --target bin --output bin/ --platform local
+	@docker build -f build/Dockerfile . --target bin --output bin/ --platform local

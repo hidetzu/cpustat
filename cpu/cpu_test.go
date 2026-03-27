@@ -119,6 +119,28 @@ func TestCollectCPUStatsInvalidValue(t *testing.T) {
 	}
 }
 
+func TestCollectCPUStatsFewerFields(t *testing.T) {
+	// Old kernels may have fewer fields (e.g., 4 instead of 10)
+	input := "cpu  1000 200 300 5000\n"
+	reader := strings.NewReader(input)
+	stats, err := collectCPUStats(reader)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stats.User != 1000 {
+		t.Errorf("User = %d, want 1000", stats.User)
+	}
+	if stats.Idle != 5000 {
+		t.Errorf("Idle = %d, want 5000", stats.Idle)
+	}
+	if stats.Iowait != 0 {
+		t.Errorf("Iowait = %d, want 0 (not present in input)", stats.Iowait)
+	}
+	if stats.StatCount != 4 {
+		t.Errorf("StatCount = %d, want 4", stats.StatCount)
+	}
+}
+
 func TestCollectCPUStatsNoCPULines(t *testing.T) {
 	input := "cpu  1000 200 300 5000 100 0 50 0 0 0\nintr 0\n"
 	reader := strings.NewReader(input)
