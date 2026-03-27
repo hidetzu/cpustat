@@ -5,7 +5,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/hidetzu/cpustat)](https://goreportcard.com/report/github.com/hidetzu/cpustat)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-This is a library to get linux cpu stat.
+A small Go library to get Linux CPU statistics from `/proc/stat`.
 
 ## Install
 
@@ -19,19 +19,52 @@ Linux Only
 
 ## Examples
 
-```go
+### Snapshot
 
+```go
 package main
 
+import (
+	"fmt"
+	"log"
+
+	"github.com/hidetzu/cpustat/cpu"
+)
+
 func main() {
-	cpus, _ := cpu.Get()
+	stats, err := cpu.Get()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	u := stats.CPU.Usage()
 	fmt.Printf("user%%\tnice%%\tsystem%%\tidle%%\n")
-	fmt.Printf("%v\t%v\t%v\t%v\n",
-		cpus.UserPercent,
-		cpus.NicePercent,
-		cpus.SystemPercent,
-		cpus.IdlePercent,
+	fmt.Printf("%.1f\t%.1f\t%.1f\t%.1f\n",
+		u.UserPercent, u.NicePercent, u.SystemPercent, u.IdlePercent,
 	)
+}
+```
+
+### Delta-based usage
+
+```go
+prev, _ := cpu.Get()
+time.Sleep(5 * time.Second)
+next, _ := cpu.Get()
+
+if d := cpu.Delta(prev, next); d != nil {
+	u := d.CPU.Usage()
+	fmt.Printf("user: %.1f%%  idle: %.1f%%\n", u.UserPercent, u.IdlePercent)
+}
+```
+
+### Per-core stats
+
+```go
+stats, _ := cpu.Get()
+for i, core := range stats.Cores {
+	u := core.Usage()
+	fmt.Printf("cpu%d: user=%.1f%% idle=%.1f%%\n", i, u.UserPercent, u.IdlePercent)
 }
 ```
 
