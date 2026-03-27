@@ -10,19 +10,8 @@ import (
 	"unicode"
 )
 
-// Get cpu statistics
-func Get() (*Stats, error) {
-	// Reference: man 5 proc, Documentation/filesystems/proc.txt in Linux source code
-	file, err := os.Open("/proc/stat")
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = file.Close() }()
-	return collectCPUStats(file)
-}
-
-// Stats represents cpu statistics for linux
-type Stats struct {
+// CoreStats holds raw /proc/stat tick counters for one CPU line.
+type CoreStats struct {
 	User      uint64
 	Nice      uint64
 	System    uint64
@@ -34,6 +23,11 @@ type Stats struct {
 	Guest     uint64
 	GuestNice uint64
 	Total     uint64
+}
+
+// Stats represents a snapshot of /proc/stat.
+type Stats struct {
+	CPU       CoreStats
 	CPUCount  int
 	StatCount int
 
@@ -43,98 +37,121 @@ type Stats struct {
 	IdlePercent   float64
 }
 
-type cpuStat struct {
-	name string
-	ptr  *uint64
+// fieldNames maps index to field name for error messages.
+var fieldNames = []string{
+	"user", "nice", "system", "idle", "iowait",
+	"irq", "softirq", "steal", "guest", "guest_nice",
+}
+
+// parseLine parses the numeric fields from a /proc/stat CPU line.
+// fields should be the space-separated tokens after the "cpu"/"cpuN" prefix.
+func parseLine(fields []string) (CoreStats, error) {
+	var cs CoreStats
+	ptrs := []*uint64{
+		&cs.User, &cs.Nice, &cs.System, &cs.Idle, &cs.Iowait,
+		&cs.Irq, &cs.Softirq, &cs.Steal, &cs.Guest, &cs.GuestNice,
+	}
+
+	for i, f := range fields {
+		if i >= len(ptrs) {
+			break
+		}
+		val, err := strconv.ParseUint(f, 10, 64)
+		if err != nil {
+			name := fieldNames[i]
+			return CoreStats{}, fmt.Errorf("failed to parse %s: %w", name, err)
+		}
+		*ptrs[i] = val
+		cs.Total += val
+	}
+
+	// Since cpustat[CPUTIME_USER] includes cpustat[CPUTIME_GUEST], subtract the duplicated values from total.
+	// https://github.com/torvalds/linux/blob/4ec9f7a18/kernel/sched/cputime.c#L151-L158
+	cs.Total -= cs.Guest
+	// cpustat[CPUTIME_NICE] includes cpustat[CPUTIME_GUEST_NICE]
+	cs.Total -= cs.GuestNice
+
+	return cs, nil
+}
+
+// Get reads /proc/stat and returns a CPU statistics snapshot.
+func Get() (*Stats, error) {
+	file, err := os.Open("/proc/stat")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	return collectCPUStats(file)
 }
 
 func collectCPUStats(out io.Reader) (*Stats, error) {
 	scanner := bufio.NewScanner(out)
-	var cpu Stats
-
-	cpuStats := []cpuStat{
-		{"user", &cpu.User},
-		{"nice", &cpu.Nice},
-		{"system", &cpu.System},
-		{"idle", &cpu.Idle},
-		{"iowait", &cpu.Iowait},
-		{"irq", &cpu.Irq},
-		{"softirq", &cpu.Softirq},
-		{"steal", &cpu.Steal},
-		{"guest", &cpu.Guest},
-		{"guest_nice", &cpu.GuestNice},
-	}
 
 	if !scanner.Scan() {
 		return nil, fmt.Errorf("failed to scan /proc/stat")
 	}
 
-	valStrs := strings.Fields(scanner.Text())[1:]
-	cpu.StatCount = len(valStrs)
-	for i, valStr := range valStrs {
-		if i >= len(cpuStats) {
-			break
-		}
-		val, err := strconv.ParseUint(valStr, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan %s from /proc/stat", cpuStats[i].name)
-		}
-		*cpuStats[i].ptr = val
-		cpu.Total += val
+	fields := strings.Fields(scanner.Text())[1:]
+	cs, err := parseLine(fields)
+	if err != nil {
+		return nil, err
 	}
 
-	// Since cpustat[CPUTIME_USER] includes cpustat[CPUTIME_GUEST], subtract the duplicated values from total.
-	// https://github.com/torvalds/linux/blob/4ec9f7a18/kernel/sched/cputime.c#L151-L158
-	cpu.Total -= cpu.Guest
-	// cpustat[CPUTIME_NICE] includes cpustat[CPUTIME_GUEST_NICE]
-	cpu.Total -= cpu.GuestNice
+	s := &Stats{
+		CPU:       cs,
+		StatCount: len(fields),
+	}
 
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "cpu") && unicode.IsDigit(rune(line[3])) {
-			cpu.CPUCount++
+			s.CPUCount++
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scan error for /proc/stat: %s", err)
 	}
 
-	cpu.UserPercent = float64(cpu.User) / float64(cpu.Total) * 100
-	cpu.NicePercent = float64(cpu.Nice) / float64(cpu.Total) * 100
-	cpu.SystemPercent = float64(cpu.System) / float64(cpu.Total) * 100
-	cpu.IdlePercent = float64(cpu.Idle) / float64(cpu.Total) * 100
+	if s.CPU.Total > 0 {
+		s.UserPercent = float64(s.CPU.User) / float64(s.CPU.Total) * 100
+		s.NicePercent = float64(s.CPU.Nice) / float64(s.CPU.Total) * 100
+		s.SystemPercent = float64(s.CPU.System) / float64(s.CPU.Total) * 100
+		s.IdlePercent = float64(s.CPU.Idle) / float64(s.CPU.Total) * 100
+	}
 
-	return &cpu, nil
+	return s, nil
 }
 
-// Delta calculates the CPU usage percentages between two snapshots.
+// Delta calculates the CPU tick deltas between two snapshots.
 // prev should be the earlier snapshot and next the later one.
 // Returns nil if the total delta is zero (no time has passed).
 func Delta(prev, next *Stats) *Stats {
 	d := &Stats{
-		User:      next.User - prev.User,
-		Nice:      next.Nice - prev.Nice,
-		System:    next.System - prev.System,
-		Idle:      next.Idle - prev.Idle,
-		Iowait:    next.Iowait - prev.Iowait,
-		Irq:       next.Irq - prev.Irq,
-		Softirq:   next.Softirq - prev.Softirq,
-		Steal:     next.Steal - prev.Steal,
-		Guest:     next.Guest - prev.Guest,
-		GuestNice: next.GuestNice - prev.GuestNice,
-		Total:     next.Total - prev.Total,
+		CPU: CoreStats{
+			User:      next.CPU.User - prev.CPU.User,
+			Nice:      next.CPU.Nice - prev.CPU.Nice,
+			System:    next.CPU.System - prev.CPU.System,
+			Idle:      next.CPU.Idle - prev.CPU.Idle,
+			Iowait:    next.CPU.Iowait - prev.CPU.Iowait,
+			Irq:       next.CPU.Irq - prev.CPU.Irq,
+			Softirq:   next.CPU.Softirq - prev.CPU.Softirq,
+			Steal:     next.CPU.Steal - prev.CPU.Steal,
+			Guest:     next.CPU.Guest - prev.CPU.Guest,
+			GuestNice: next.CPU.GuestNice - prev.CPU.GuestNice,
+			Total:     next.CPU.Total - prev.CPU.Total,
+		},
 		CPUCount:  next.CPUCount,
 		StatCount: next.StatCount,
 	}
 
-	if d.Total == 0 {
+	if d.CPU.Total == 0 {
 		return nil
 	}
 
-	d.UserPercent = float64(d.User) / float64(d.Total) * 100
-	d.NicePercent = float64(d.Nice) / float64(d.Total) * 100
-	d.SystemPercent = float64(d.System) / float64(d.Total) * 100
-	d.IdlePercent = float64(d.Idle) / float64(d.Total) * 100
+	d.UserPercent = float64(d.CPU.User) / float64(d.CPU.Total) * 100
+	d.NicePercent = float64(d.CPU.Nice) / float64(d.CPU.Total) * 100
+	d.SystemPercent = float64(d.CPU.System) / float64(d.CPU.Total) * 100
+	d.IdlePercent = float64(d.CPU.Idle) / float64(d.CPU.Total) * 100
 
 	return d
 }
