@@ -25,17 +25,40 @@ type CoreStats struct {
 	Total     uint64
 }
 
+// Usage holds CPU usage percentages computed from a CoreStats delta.
+type Usage struct {
+	UserPercent   float64
+	NicePercent   float64
+	SystemPercent float64
+	IdlePercent   float64
+	IowaitPercent float64
+	StealPercent  float64
+}
+
+// Usage computes percentage breakdown from tick counters.
+// Typically called on a delta CoreStats (result of Delta).
+// Returns zero Usage if Total is zero.
+func (c *CoreStats) Usage() Usage {
+	if c.Total == 0 {
+		return Usage{}
+	}
+	t := float64(c.Total)
+	return Usage{
+		UserPercent:   float64(c.User) / t * 100,
+		NicePercent:   float64(c.Nice) / t * 100,
+		SystemPercent: float64(c.System) / t * 100,
+		IdlePercent:   float64(c.Idle) / t * 100,
+		IowaitPercent: float64(c.Iowait) / t * 100,
+		StealPercent:  float64(c.Steal) / t * 100,
+	}
+}
+
 // Stats represents a snapshot of /proc/stat.
 type Stats struct {
 	CPU       CoreStats
 	Cores     []CoreStats
 	CPUCount  int
 	StatCount int
-
-	UserPercent   float64
-	NicePercent   float64
-	SystemPercent float64
-	IdlePercent   float64
 }
 
 // fieldNames maps index to field name for error messages.
@@ -119,13 +142,6 @@ func collectCPUStats(out io.Reader) (*Stats, error) {
 		return nil, fmt.Errorf("scan error for /proc/stat: %s", err)
 	}
 
-	if s.CPU.Total > 0 {
-		s.UserPercent = float64(s.CPU.User) / float64(s.CPU.Total) * 100
-		s.NicePercent = float64(s.CPU.Nice) / float64(s.CPU.Total) * 100
-		s.SystemPercent = float64(s.CPU.System) / float64(s.CPU.Total) * 100
-		s.IdlePercent = float64(s.CPU.Idle) / float64(s.CPU.Total) * 100
-	}
-
 	return s, nil
 }
 
@@ -159,11 +175,6 @@ func Delta(prev, next *Stats) *Stats {
 	if d.CPU.Total == 0 {
 		return nil
 	}
-
-	d.UserPercent = float64(d.CPU.User) / float64(d.CPU.Total) * 100
-	d.NicePercent = float64(d.CPU.Nice) / float64(d.CPU.Total) * 100
-	d.SystemPercent = float64(d.CPU.System) / float64(d.CPU.Total) * 100
-	d.IdlePercent = float64(d.CPU.Idle) / float64(d.CPU.Total) * 100
 
 	// Compute per-core deltas using the minimum core count
 	n := len(prev.Cores)

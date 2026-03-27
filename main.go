@@ -41,15 +41,16 @@ func startWork(ctx context.Context) {
 			fmt.Printf("failed to get cpu stats: %s\n", err)
 		} else if prev != nil {
 			if d := cpu.Delta(prev, cur); d != nil {
+				u := d.CPU.Usage()
 				if !headerPrinted {
 					fmt.Printf("user%%\tnice%%\tsystem%%\tidle%%\n")
 					headerPrinted = true
 				}
 				fmt.Printf("%.1f\t%.1f\t%.1f\t%.1f\n",
-					d.UserPercent,
-					d.NicePercent,
-					d.SystemPercent,
-					d.IdlePercent,
+					u.UserPercent,
+					u.NicePercent,
+					u.SystemPercent,
+					u.IdlePercent,
 				)
 			}
 		}
