@@ -104,13 +104,14 @@ func TestCollectCPUStats(t *testing.T) {
 		t.Errorf("CPUCount = %d, want 4", stats.CPUCount)
 	}
 
+	u := stats.CPU.Usage()
 	wantUserPct := float64(10132153) / float64(expectedTotal) * 100
-	if math.Abs(stats.UserPercent-wantUserPct) > 0.001 {
-		t.Errorf("UserPercent = %f, want %f", stats.UserPercent, wantUserPct)
+	if math.Abs(u.UserPercent-wantUserPct) > 0.001 {
+		t.Errorf("UserPercent = %f, want %f", u.UserPercent, wantUserPct)
 	}
 	wantIdlePct := float64(46828483) / float64(expectedTotal) * 100
-	if math.Abs(stats.IdlePercent-wantIdlePct) > 0.001 {
-		t.Errorf("IdlePercent = %f, want %f", stats.IdlePercent, wantIdlePct)
+	if math.Abs(u.IdlePercent-wantIdlePct) > 0.001 {
+		t.Errorf("IdlePercent = %f, want %f", u.IdlePercent, wantIdlePct)
 	}
 }
 
@@ -242,13 +243,14 @@ func TestDelta(t *testing.T) {
 		t.Errorf("CPU.User = %d, want 200", d.CPU.User)
 	}
 
+	u := d.CPU.Usage()
 	wantUserPct := float64(200) / float64(680) * 100
-	if math.Abs(d.UserPercent-wantUserPct) > 0.001 {
-		t.Errorf("UserPercent = %f, want %f", d.UserPercent, wantUserPct)
+	if math.Abs(u.UserPercent-wantUserPct) > 0.001 {
+		t.Errorf("UserPercent = %f, want %f", u.UserPercent, wantUserPct)
 	}
 	wantIdlePct := float64(400) / float64(680) * 100
-	if math.Abs(d.IdlePercent-wantIdlePct) > 0.001 {
-		t.Errorf("IdlePercent = %f, want %f", d.IdlePercent, wantIdlePct)
+	if math.Abs(u.IdlePercent-wantIdlePct) > 0.001 {
+		t.Errorf("IdlePercent = %f, want %f", u.IdlePercent, wantIdlePct)
 	}
 
 	if d.CPUCount != 4 {
@@ -286,6 +288,40 @@ func TestDeltaPerCore(t *testing.T) {
 	}
 	if d.Cores[0].Total != 200 {
 		t.Errorf("Cores[0].Total = %d, want 200", d.Cores[0].Total)
+	}
+}
+
+func TestUsage(t *testing.T) {
+	cs := CoreStats{User: 200, Nice: 10, System: 50, Idle: 400, Iowait: 30, Steal: 10, Total: 700}
+	u := cs.Usage()
+
+	if math.Abs(u.UserPercent-float64(200)/700*100) > 0.001 {
+		t.Errorf("UserPercent = %f", u.UserPercent)
+	}
+	if math.Abs(u.IowaitPercent-float64(30)/700*100) > 0.001 {
+		t.Errorf("IowaitPercent = %f", u.IowaitPercent)
+	}
+	if math.Abs(u.StealPercent-float64(10)/700*100) > 0.001 {
+		t.Errorf("StealPercent = %f", u.StealPercent)
+	}
+}
+
+func TestUsageZeroTotal(t *testing.T) {
+	cs := CoreStats{}
+	u := cs.Usage()
+	if u.UserPercent != 0 || u.IdlePercent != 0 {
+		t.Errorf("expected zero Usage, got %+v", u)
+	}
+}
+
+func TestUsageAllIdle(t *testing.T) {
+	cs := CoreStats{Idle: 1000, Total: 1000}
+	u := cs.Usage()
+	if math.Abs(u.IdlePercent-100) > 0.001 {
+		t.Errorf("IdlePercent = %f, want 100", u.IdlePercent)
+	}
+	if u.UserPercent != 0 {
+		t.Errorf("UserPercent = %f, want 0", u.UserPercent)
 	}
 }
 
