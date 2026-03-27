@@ -28,6 +28,7 @@ type CoreStats struct {
 // Stats represents a snapshot of /proc/stat.
 type Stats struct {
 	CPU       CoreStats
+	Cores     []CoreStats
 	CPUCount  int
 	StatCount int
 
@@ -104,10 +105,16 @@ func collectCPUStats(out io.Reader) (*Stats, error) {
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "cpu") && unicode.IsDigit(rune(line[3])) {
-			s.CPUCount++
+		if strings.HasPrefix(line, "cpu") && len(line) > 3 && unicode.IsDigit(rune(line[3])) {
+			coreFields := strings.Fields(line)[1:]
+			coreCS, err := parseLine(coreFields)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse %s: %w", strings.Fields(line)[0], err)
+			}
+			s.Cores = append(s.Cores, coreCS)
 		}
 	}
+	s.CPUCount = len(s.Cores)
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scan error for /proc/stat: %s", err)
 	}
@@ -122,24 +129,29 @@ func collectCPUStats(out io.Reader) (*Stats, error) {
 	return s, nil
 }
 
+// deltaCore calculates the tick delta between two CoreStats.
+func deltaCore(prev, next CoreStats) CoreStats {
+	return CoreStats{
+		User:      next.User - prev.User,
+		Nice:      next.Nice - prev.Nice,
+		System:    next.System - prev.System,
+		Idle:      next.Idle - prev.Idle,
+		Iowait:    next.Iowait - prev.Iowait,
+		Irq:       next.Irq - prev.Irq,
+		Softirq:   next.Softirq - prev.Softirq,
+		Steal:     next.Steal - prev.Steal,
+		Guest:     next.Guest - prev.Guest,
+		GuestNice: next.GuestNice - prev.GuestNice,
+		Total:     next.Total - prev.Total,
+	}
+}
+
 // Delta calculates the CPU tick deltas between two snapshots.
 // prev should be the earlier snapshot and next the later one.
-// Returns nil if the total delta is zero (no time has passed).
+// Returns nil if the aggregate total delta is zero (no time has passed).
 func Delta(prev, next *Stats) *Stats {
 	d := &Stats{
-		CPU: CoreStats{
-			User:      next.CPU.User - prev.CPU.User,
-			Nice:      next.CPU.Nice - prev.CPU.Nice,
-			System:    next.CPU.System - prev.CPU.System,
-			Idle:      next.CPU.Idle - prev.CPU.Idle,
-			Iowait:    next.CPU.Iowait - prev.CPU.Iowait,
-			Irq:       next.CPU.Irq - prev.CPU.Irq,
-			Softirq:   next.CPU.Softirq - prev.CPU.Softirq,
-			Steal:     next.CPU.Steal - prev.CPU.Steal,
-			Guest:     next.CPU.Guest - prev.CPU.Guest,
-			GuestNice: next.CPU.GuestNice - prev.CPU.GuestNice,
-			Total:     next.CPU.Total - prev.CPU.Total,
-		},
+		CPU:       deltaCore(prev.CPU, next.CPU),
 		CPUCount:  next.CPUCount,
 		StatCount: next.StatCount,
 	}
@@ -152,6 +164,16 @@ func Delta(prev, next *Stats) *Stats {
 	d.NicePercent = float64(d.CPU.Nice) / float64(d.CPU.Total) * 100
 	d.SystemPercent = float64(d.CPU.System) / float64(d.CPU.Total) * 100
 	d.IdlePercent = float64(d.CPU.Idle) / float64(d.CPU.Total) * 100
+
+	// Compute per-core deltas using the minimum core count
+	n := len(prev.Cores)
+	if len(next.Cores) < n {
+		n = len(next.Cores)
+	}
+	d.Cores = make([]CoreStats, n)
+	for i := 0; i < n; i++ {
+		d.Cores[i] = deltaCore(prev.Cores[i], next.Cores[i])
+	}
 
 	return d
 }

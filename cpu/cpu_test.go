@@ -9,7 +9,7 @@ import (
 // Simulated /proc/stat content with 4 CPUs
 const procStatContent = `cpu  10132153 290696 3084719 46828483 16683 0 25195 0 0 0
 cpu0 2526892 72724 771045 11714498 4161 0 6292 0 0 0
-cpu1 2525528 72## 771165 11714619 4164 0 6283 0 0 0
+cpu1 2525528 72571 771165 11714619 4164 0 6283 0 0 0
 cpu2 2540280 72594 771137 11699410 4178 0 6309 0 0 0
 cpu3 2539453 72807 771372 11699956 4180 0 6311 0 0 0
 intr 330660234 0 0 0 0 0 0 0 0
@@ -170,6 +170,35 @@ func TestCollectCPUStatsFewerFields(t *testing.T) {
 	}
 }
 
+func TestCollectCPUStatsPerCore(t *testing.T) {
+	input := `cpu  2000 400 600 10000 200 0 100 0 0 0
+cpu0 1000 200 300 5000 100 0 50 0 0 0
+cpu1 1000 200 300 5000 100 0 50 0 0 0
+intr 0
+`
+	reader := strings.NewReader(input)
+	stats, err := collectCPUStats(reader)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stats.CPUCount != 2 {
+		t.Errorf("CPUCount = %d, want 2", stats.CPUCount)
+	}
+	if len(stats.Cores) != 2 {
+		t.Fatalf("len(Cores) = %d, want 2", len(stats.Cores))
+	}
+	if stats.Cores[0].User != 1000 {
+		t.Errorf("Cores[0].User = %d, want 1000", stats.Cores[0].User)
+	}
+	if stats.Cores[1].System != 300 {
+		t.Errorf("Cores[1].System = %d, want 300", stats.Cores[1].System)
+	}
+	expectedCoreTotal := uint64(1000 + 200 + 300 + 5000 + 100 + 0 + 50 + 0 + 0 + 0)
+	if stats.Cores[0].Total != expectedCoreTotal {
+		t.Errorf("Cores[0].Total = %d, want %d", stats.Cores[0].Total, expectedCoreTotal)
+	}
+}
+
 func TestCollectCPUStatsNoCPULines(t *testing.T) {
 	input := "cpu  1000 200 300 5000 100 0 50 0 0 0\nintr 0\n"
 	reader := strings.NewReader(input)
@@ -224,6 +253,39 @@ func TestDelta(t *testing.T) {
 
 	if d.CPUCount != 4 {
 		t.Errorf("CPUCount = %d, want 4", d.CPUCount)
+	}
+}
+
+func TestDeltaPerCore(t *testing.T) {
+	core0 := CoreStats{User: 500, Idle: 2500, Total: 3000}
+	core1 := CoreStats{User: 500, Idle: 2500, Total: 3000}
+	prev := &Stats{
+		CPU:   CoreStats{User: 1000, Idle: 5000, Total: 6000},
+		Cores: []CoreStats{core0, core1},
+	}
+
+	core0next := CoreStats{User: 600, Idle: 2600, Total: 3200}
+	core1next := CoreStats{User: 700, Idle: 2500, Total: 3200}
+	next := &Stats{
+		CPU:   CoreStats{User: 1300, Idle: 5100, Total: 6400},
+		Cores: []CoreStats{core0next, core1next},
+	}
+
+	d := Delta(prev, next)
+	if d == nil {
+		t.Fatal("Delta returned nil")
+	}
+	if len(d.Cores) != 2 {
+		t.Fatalf("len(Cores) = %d, want 2", len(d.Cores))
+	}
+	if d.Cores[0].User != 100 {
+		t.Errorf("Cores[0].User = %d, want 100", d.Cores[0].User)
+	}
+	if d.Cores[1].User != 200 {
+		t.Errorf("Cores[1].User = %d, want 200", d.Cores[1].User)
+	}
+	if d.Cores[0].Total != 200 {
+		t.Errorf("Cores[0].Total = %d, want 200", d.Cores[0].Total)
 	}
 }
 
