@@ -338,3 +338,99 @@ func TestDeltaZeroTotal(t *testing.T) {
 		t.Errorf("Delta with identical stats should return nil, got %+v", d)
 	}
 }
+
+func TestDeltaCoreCountMismatch(t *testing.T) {
+	prev := &Stats{
+		CPU:   CoreStats{User: 1000, Total: 5000},
+		Cores: []CoreStats{{User: 500, Total: 2500}, {User: 500, Total: 2500}},
+	}
+	next := &Stats{
+		CPU:   CoreStats{User: 1200, Total: 5200},
+		Cores: []CoreStats{{User: 600, Total: 2600}},
+	}
+	d := Delta(prev, next)
+	if d == nil {
+		t.Fatal("Delta returned nil")
+	}
+	if len(d.Cores) != 1 {
+		t.Errorf("len(Cores) = %d, want 1 (min of prev=2, next=1)", len(d.Cores))
+	}
+}
+
+func TestParseLineExtraFields(t *testing.T) {
+	// Future kernels may add fields beyond the 10 we know
+	fields := []string{"100", "200", "300", "400", "500", "600", "700", "800", "900", "1000", "9999", "8888"}
+	cs, err := parseLine(fields)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cs.GuestNice != 1000 {
+		t.Errorf("GuestNice = %d, want 1000", cs.GuestNice)
+	}
+	// Extra fields should be ignored
+	expectedTotal := uint64(100+200+300+400+500+600+700+800+900+1000) - 900 - 1000
+	if cs.Total != expectedTotal {
+		t.Errorf("Total = %d, want %d", cs.Total, expectedTotal)
+	}
+}
+
+func TestParseLineUint64Overflow(t *testing.T) {
+	// Value exceeding uint64 max
+	fields := []string{"99999999999999999999999"}
+	_, err := parseLine(fields)
+	if err == nil {
+		t.Error("expected error for uint64 overflow, got nil")
+	}
+}
+
+func TestCollectCPUStatsInvalidCoreLine(t *testing.T) {
+	input := "cpu  1000 200 300 5000 100 0 50 0 0 0\ncpu0 abc 200 300 5000 100 0 50 0 0 0\n"
+	reader := strings.NewReader(input)
+	_, err := collectCPUStats(reader)
+	if err == nil {
+		t.Error("expected error for invalid core line, got nil")
+	}
+}
+
+func TestCollectCPUStatsPerCoreGuestSubtraction(t *testing.T) {
+	input := `cpu  1000 200 300 5000 100 0 50 0 80 20
+cpu0 500 100 150 2500 50 0 25 0 40 10
+`
+	reader := strings.NewReader(input)
+	stats, err := collectCPUStats(reader)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stats.Cores[0].Guest != 40 {
+		t.Errorf("Cores[0].Guest = %d, want 40", stats.Cores[0].Guest)
+	}
+	if stats.Cores[0].GuestNice != 10 {
+		t.Errorf("Cores[0].GuestNice = %d, want 10", stats.Cores[0].GuestNice)
+	}
+	rawSum := uint64(500 + 100 + 150 + 2500 + 50 + 0 + 25 + 0 + 40 + 10)
+	expectedTotal := rawSum - 40 - 10
+	if stats.Cores[0].Total != expectedTotal {
+		t.Errorf("Cores[0].Total = %d, want %d", stats.Cores[0].Total, expectedTotal)
+	}
+}
+
+func TestUsagePerCoreDelta(t *testing.T) {
+	prev := &Stats{
+		CPU:   CoreStats{User: 2000, System: 600, Idle: 10000, Total: 12600},
+		Cores: []CoreStats{{User: 1000, System: 300, Idle: 5000, Total: 6300}},
+	}
+	next := &Stats{
+		CPU:   CoreStats{User: 2200, System: 650, Idle: 10500, Total: 13350},
+		Cores: []CoreStats{{User: 1100, System: 325, Idle: 5250, Total: 6675}},
+	}
+	d := Delta(prev, next)
+	if d == nil {
+		t.Fatal("Delta returned nil")
+	}
+	u := d.Cores[0].Usage()
+	// Core delta: User=100, System=25, Idle=250, Total=375
+	wantUserPct := float64(100) / float64(375) * 100
+	if math.Abs(u.UserPercent-wantUserPct) > 0.001 {
+		t.Errorf("Cores[0] UserPercent = %f, want %f", u.UserPercent, wantUserPct)
+	}
+}
