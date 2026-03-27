@@ -1,5 +1,7 @@
 # cpustat
 
+[![CI](https://github.com/hidetzu/cpustat/actions/workflows/ci.yml/badge.svg)](https://github.com/hidetzu/cpustat/actions/workflows/ci.yml)
+
 This is a library to get linux cpu stat.
 
 ## install
