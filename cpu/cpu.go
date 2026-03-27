@@ -1,3 +1,9 @@
+// Package cpu provides functions to read CPU statistics from /proc/stat on Linux.
+//
+// It focuses on simple snapshot and delta-based CPU usage calculation,
+// supporting both aggregate and per-core statistics.
+//
+// This package is lightweight and does not aim to be a full system monitoring library.
 package cpu
 
 import (
