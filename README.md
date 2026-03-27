@@ -7,10 +7,10 @@
 
 This is a library to get linux cpu stat.
 
-## install
+## Install
 
 ```sh
-go get github.com/hidetzu/cpustat
+go install github.com/hidetzu/cpustat@latest
 ```
 
 ## Supported OS
