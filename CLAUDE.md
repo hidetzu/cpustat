@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Linux-only Go library and CLI tool that reads CPU statistics from `/proc/stat`. The `cpu` package exposes a `Get()` function returning a `Stats` struct with raw counters and percentage breakdowns. The `main` package runs a polling loop (every 5 seconds) that prints CPU usage until interrupted by SIGTERM/SIGINT.
+A Linux-only Go library that reads CPU statistics from `/proc/stat`. Designed to be a small, focused library — not a CLI tool, TUI, or cross-platform system monitor. The `main.go` is a minimal demo only.
 
 ## Build Commands
 
@@ -17,13 +17,21 @@ go build -o bin/cpustat .
 
 # Run tests
 go test ./...
+
+# Run tests with race detection
+go test ./... -v -race
 ```
 
 ## Architecture
 
-- **`cpu/cpu.go`** — Core library. Parses `/proc/stat` to populate `Stats` (user, nice, system, idle, iowait, irq, softirq, steal, guest, guest_nice, total, per-CPU count, percentages). Guest/guest_nice are subtracted from total to avoid double-counting per Linux kernel convention.
-- **`main.go`** — CLI entry point. Polls `cpu.Get()` on a 5-second ticker with graceful shutdown via context cancellation on SIGTERM/SIGINT.
-- **`build/Dockerfile`** — CentOS Stream 9 based build container.
+- **`cpu/cpu.go`** — Core library with three key types:
+  - `CoreStats` — Raw tick counters for one CPU line (aggregate or per-core). Guest/guest_nice are subtracted from total per Linux kernel convention.
+  - `Stats` — Snapshot of `/proc/stat` containing `CPU` (aggregate), `Cores` (per-core `[]CoreStats`), `CPUCount`, and `StatCount`.
+  - `Usage` — Percentage breakdown (user, nice, system, idle, iowait, steal) computed via `CoreStats.Usage()`.
+  - Key functions: `Get()` returns a snapshot, `Delta(prev, next)` computes tick deltas between two snapshots.
+  - Internal: `parseLine()` parses a single `/proc/stat` CPU line, reused for both aggregate and per-core lines.
+- **`main.go`** — Demo CLI. Polls `cpu.Get()` on a 5-second ticker, prints delta-based usage via `CPU.Usage()`. Graceful shutdown on SIGTERM/SIGINT.
+- **`build/Dockerfile`** — Multi-stage build container using `golang:1.20`.
 
 ## Platform Constraint
 
