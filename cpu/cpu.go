@@ -17,7 +17,7 @@ func Get() (*Stats, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	return collectCPUStats(file)
 }
 
