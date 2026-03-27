@@ -28,15 +28,29 @@ func main() {
 	startWork(ctx)
 }
 
-// startWork performs a task every 5 seconds until the context is done.
+// startWork polls CPU stats every 5 seconds and prints delta-based usage.
 func startWork(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
+
+	var prev *cpu.Stats
 	for {
-		// Do work here so we don't need duplicate calls. It will run immediately, and again every minute as the loop continues.
-		if err := work(ctx); err != nil {
-			fmt.Printf("failed to do work: %s", err)
+		cur, err := cpu.Get()
+		if err != nil {
+			fmt.Printf("failed to get cpu stats: %s\n", err)
+		} else if prev != nil {
+			if d := cpu.Delta(prev, cur); d != nil {
+				fmt.Printf("user%%\tnice%%\tsystem%%\tidle%%\n")
+				fmt.Printf("%.1f\t%.1f\t%.1f\t%.1f\n",
+					d.UserPercent,
+					d.NicePercent,
+					d.SystemPercent,
+					d.IdlePercent,
+				)
+			}
 		}
+		prev = cur
+
 		select {
 		case <-ticker.C:
 			continue
@@ -44,19 +58,4 @@ func startWork(ctx context.Context) {
 			return
 		}
 	}
-}
-
-func work(ctx context.Context) error {
-	cpus, err := cpu.Get()
-	if err != nil {
-		return fmt.Errorf("failed to get cpu stats: %w", err)
-	}
-	fmt.Printf("user%%\tnice%%\tsystem%%\tidle%%\n")
-	fmt.Printf("%v\t%v\t%v\t%v\n",
-		cpus.UserPercent,
-		cpus.NicePercent,
-		cpus.SystemPercent,
-		cpus.IdlePercent,
-	)
-	return nil
 }

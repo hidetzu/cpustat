@@ -141,6 +141,56 @@ func TestCollectCPUStatsFewerFields(t *testing.T) {
 	}
 }
 
+func TestDelta(t *testing.T) {
+	prev := &Stats{
+		User: 1000, Nice: 200, System: 300, Idle: 5000,
+		Iowait: 100, Irq: 0, Softirq: 50, Steal: 0, Guest: 0, GuestNice: 0,
+		Total: 6650, CPUCount: 4, StatCount: 10,
+	}
+	next := &Stats{
+		User: 1200, Nice: 210, System: 350, Idle: 5400,
+		Iowait: 110, Irq: 0, Softirq: 60, Steal: 0, Guest: 0, GuestNice: 0,
+		Total: 7330, CPUCount: 4, StatCount: 10,
+	}
+
+	d := Delta(prev, next)
+	if d == nil {
+		t.Fatal("Delta returned nil, expected non-nil")
+	}
+
+	totalDelta := uint64(7330 - 6650) // 680
+	if d.Total != totalDelta {
+		t.Errorf("Total = %d, want %d", d.Total, totalDelta)
+	}
+	if d.User != 200 {
+		t.Errorf("User = %d, want 200", d.User)
+	}
+
+	wantUserPct := float64(200) / float64(680) * 100
+	if math.Abs(d.UserPercent-wantUserPct) > 0.001 {
+		t.Errorf("UserPercent = %f, want %f", d.UserPercent, wantUserPct)
+	}
+	wantIdlePct := float64(400) / float64(680) * 100
+	if math.Abs(d.IdlePercent-wantIdlePct) > 0.001 {
+		t.Errorf("IdlePercent = %f, want %f", d.IdlePercent, wantIdlePct)
+	}
+
+	if d.CPUCount != 4 {
+		t.Errorf("CPUCount = %d, want 4", d.CPUCount)
+	}
+}
+
+func TestDeltaZeroTotal(t *testing.T) {
+	s := &Stats{
+		User: 1000, Nice: 200, System: 300, Idle: 5000,
+		Total: 6500, CPUCount: 2,
+	}
+	d := Delta(s, s)
+	if d != nil {
+		t.Errorf("Delta with identical stats should return nil, got %+v", d)
+	}
+}
+
 func TestCollectCPUStatsNoCPULines(t *testing.T) {
 	input := "cpu  1000 200 300 5000 100 0 50 0 0 0\nintr 0\n"
 	reader := strings.NewReader(input)

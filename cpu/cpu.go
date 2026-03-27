@@ -106,3 +106,35 @@ func collectCPUStats(out io.Reader) (*Stats, error) {
 
 	return &cpu, nil
 }
+
+// Delta calculates the CPU usage percentages between two snapshots.
+// prev should be the earlier snapshot and next the later one.
+// Returns nil if the total delta is zero (no time has passed).
+func Delta(prev, next *Stats) *Stats {
+	d := &Stats{
+		User:      next.User - prev.User,
+		Nice:      next.Nice - prev.Nice,
+		System:    next.System - prev.System,
+		Idle:      next.Idle - prev.Idle,
+		Iowait:    next.Iowait - prev.Iowait,
+		Irq:       next.Irq - prev.Irq,
+		Softirq:   next.Softirq - prev.Softirq,
+		Steal:     next.Steal - prev.Steal,
+		Guest:     next.Guest - prev.Guest,
+		GuestNice: next.GuestNice - prev.GuestNice,
+		Total:     next.Total - prev.Total,
+		CPUCount:  next.CPUCount,
+		StatCount: next.StatCount,
+	}
+
+	if d.Total == 0 {
+		return nil
+	}
+
+	d.UserPercent = float64(d.User) / float64(d.Total) * 100
+	d.NicePercent = float64(d.Nice) / float64(d.Total) * 100
+	d.SystemPercent = float64(d.System) / float64(d.Total) * 100
+	d.IdlePercent = float64(d.Idle) / float64(d.Total) * 100
+
+	return d
+}
